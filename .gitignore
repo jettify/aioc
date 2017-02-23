@@ -59,4 +59,5 @@ target/
 
 # vim
 *.swp
-
+tags
+cscope.*
