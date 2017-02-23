@@ -1,0 +1,9 @@
+docutils
+flake8
+ipdb
+msgpack-python
+mypy-lang
+pytest
+pytest-cov
+pytest-sugar
+uvloop
