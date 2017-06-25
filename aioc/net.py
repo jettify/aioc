@@ -1,124 +1,91 @@
 import asyncio
-from . import state
+
+from aioc import state
+from aioc.state import add_msg_size, decode_msg_size, LENGTH_SIZE
 
 
-def send_udp_messages(udp_server, address, *messages):
-    raw = state.add_msg_size(state.encode_messages(*messages))
-    host, port = address.split(":")
-    addr = (host, int(port))
-    udp_server.sendto(raw, addr)
+async def read_message(reader):
+    size_data = await reader.readexactly(LENGTH_SIZE)
+    mg_size = decode_msg_size(size_data)
+    raw_message = await reader.readexactly(mg_size)
+    msg = state.decode_message(raw_message)
+    return msg
 
 
-class UDPServerProtocol(asyncio.Protocol):
-
-    def __init__(self, loop):
-        self._transport = None
+class Connection:
+    def __init__(self, reader, writer, manager):
+        self._reader = reader
+        self._writer = writer
+        self._reader_task = asyncio.ensure_future(self._read_data())
         self._closing = False
-        self._loop = loop
-        self._handler = None
+        self._manager = manager
 
-    def connection_made(self, transport):
-        self._transport = transport
-        super().connection_made(transport)
+    async def _read_data(self):
+        while not self._closing:
+            msg = await read_message(self._reader)
+            print("---------------")
+            print(msg)
+            await self._manager.queue.put(msg)
 
-    def set_handler(self, handler):
-        self._handler = handler
+    def send(self, message):
+        raw_payload = state.encode_message(message)
+        self._writer.write(add_msg_size(raw_payload))
 
-    def datagram_received(self, data, addr):
-        if self._handler is None:
+    async def close(self):
+        self._closing = True
+        self._reader_task.cancel()
+        try:
+            await self._reader_task
+        except asyncio.CancelledError:
+            pass
+
+
+class ConnectionManager:
+
+    def __init__(self, local_node):
+        self._connections = {}
+        self._queue = asyncio.Queue()
+        self._closing = True
+        self._local_node = local_node
+
+    @property
+    def queue(self):
+        return self._queue
+
+    async def cleanup(self, node):
+        conn = self._connections.pop(node, None)
+        if conn:
+            await conn.close()
+
+    async def handle_connection(self, reader, writer):
+        hello = await read_message(reader)
+        if not isinstance(hello, state.Hello):
+            data = b"bad init line"
+            writer.write(add_msg_size(data))
+            await writer.drain()
+            writer.close()
             return
 
-        size_data = state.decode_msg_size(data)
-        header = state.LENGTH_SIZE
-        raw_message = data[header: header + size_data]
-        self._handler(raw_message, addr, self)
+        conn = Connection(reader, writer, self)
+        self._connections[hello.sender] = conn
 
-    def connection_lost(self, exc):
-        super().connection_lost(exc)
+    async def _create_connection(self, node):
+        reader, writer = await asyncio.open_connection(node.host, node.port)
+        data = state.encode_message(state.Hello(1, self._local_node))
+        writer.write(add_msg_size(data))
+        await writer.drain()
+        conn = Connection(reader, writer, self)
+        self._connections[node] = conn
+        return conn
 
-    def sendto(self, data, addr):
-        self._transport.sendto(data, addr)
+    async def send(self, node, message):
+        if node in self._connections:
+            conn = self._connections[node]
+        else:
+            conn = await self._create_connection(node)
+        conn.send(message)
 
-    def close(self):
+    async def close(self):
         self._closing = True
-
-    async def wait_closed(self):
-        self._transport.close()
-        self._transport = None
-
-
-async def create_server(*, host='127.0.0.1', port=9999, mlist, loop):
-    address = (host, port)
-    _, protocol = await loop.create_datagram_endpoint(
-        lambda: UDPServerProtocol(loop), local_addr=address)
-    return protocol
-
-
-class MessageHandler:
-
-    def __init__(self, mlist, gossiper, failure_detector, loop):
-        self._loop = loop
-        self._mlist = mlist
-        self._gossiper = gossiper
-        self._failure_detector = failure_detector
-
-    def handle(self, raw_message, addr, protocol):
-        if raw_message[0] == state.COMPOUND_MSG:
-            messages = state.decode_messages(raw_message)
-        else:
-            messages = [state.decode_message(raw_message)]
-        for m in messages:
-            try:
-                self.handle_message(addr, m, protocol)
-            except Exception as e:
-                print(raw_message, addr, protocol)
-                raise e
-
-    def handle_message(self, addr, message, protocol):
-        if isinstance(message, state.Ping):
-            self.handle_ping(message, addr, protocol)
-
-        elif isinstance(message, state.IndirectPingReq):
-            self.handle_indirect_ping(message, addr)
-
-        elif isinstance(message, state.AckResp):
-            self.handle_ack(message, addr, protocol)
-
-        elif isinstance(message, state.NackResp):
-            self.handle_nack(message, addr, protocol)
-
-        elif isinstance(message, state.Alive):
-            self.handle_alive(message, addr, protocol)
-
-        else:
-            raise RuntimeError("Can not handle message", message)
-
-    # fe
-    def handle_ping(self, message, addr, protocol):
-        self._failure_detector.on_ping(message)
-
-    def handle_indirect_ping(self, message, node, protocol):
-        self._failure_detector.on_indirect_ping(message)
-        print(message, node)
-        pass
-
-    def handle_ack(self, message, node, protocol):
-        self._failure_detector.on_ack(message)
-        print("ACK", message, node, protocol)
-
-    def handle_nack(self, message, node, protocol):
-        self._failure_detector.on_ping(message)
-
-    # gossip
-    def handle_alive(self, message, node, protocol):
-        self._gossiper.alive(message)
-
-    def handle_suspect(self, message, node, protocol):
-        self._gossiper.suspect(message)
-
-    def handle_dead(self, message, node, protocol):
-        self._gossiper.dead(message)
-
-    # user
-    def handle_user(self, message, node, protocol):
-        print(message, node)
+        for node, conn in self._connections.items():
+            await conn.close()

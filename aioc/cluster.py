@@ -1,162 +1,144 @@
 import asyncio
-import contextlib
 
-from .failure_detector import FailureDetector
-from .gossiper import Gossiper
-from .mlist import MList
-from .net import create_server, MessageHandler
-from .pusher import Pusher
-from .state import Alive
-from .tcp import create_tcp_server
-from .utils import Ticker
+from .config import Config
+from .net import ConnectionManager
+from .utils import IdGenerator
 
-
-__all__ = ('Cluster',)
+from . import state as s
 
 
 class Cluster:
-
-    def __init__(self, config, loop=None):
-        self.config = config
-        self._mlist = MList(config)
-        self._listener = EventListener(loop)
-
-        self._udp_handler = None
-        self._tcp_handler = None
-        self._udp_server = None
-        self._tcp_server = None
-        self._fe = None
-
-        self._fe_ticker = None
-        self._gossip_ticker = None
-
+    def __init__(self, config: Config):
+        self._server = None
+        self._cm = None
+        self._node = s.Node(config.host, config.port)
+        self._joined = asyncio.Future()
         self._closing = False
-        self._started = False
-        self._loop = loop or asyncio.get_event_loop()
-
-    async def boot(self):
-        h, p = self.config.host, self.config.port
-        loop = self._loop
-
-        udp_server = await create_server(
-            host=h, port=p, mlist=self._mlist, loop=loop)
-        self._gossiper = Gossiper(self._mlist, udp_server, self._listener,
-                                  loop=loop)
-
-        self._pusher = Pusher(self._mlist, self._gossiper, loop)
-        self._fe = FailureDetector(self._mlist, self._gossiper, loop)
-
-        udp_handler = MessageHandler(self._mlist, self._gossiper, self._fe,
-                                     loop)
-        udp_server.set_handler(udp_handler.handle)
-
-        self._udp_handler = udp_handler
-        self._udp_server = udp_server
-
-        tcp_server, tcp_handler = await create_tcp_server(
-            host=h, port=p, mlist=self._mlist,
-            gossiper=self._gossiper, loop=loop)
-        self._tcp_handler = tcp_handler
-        self._tcp_server = tcp_server
-
-        self._gossip_ticker = Ticker(
-            self._gossiper.gossip, self.config.gossip_interval,
-            loop=loop)
-        self._gossip_ticker.start()
-
-        self._fe_ticker = Ticker(
-            self._fe.probe, self.config.probe_interval,
-            loop=loop)
-        # self._fe_ticker.start()
-
-        self._pusher_ticker = Ticker(
-            self._pusher.push_pull, self.config.push_pull_interval,
-            loop=loop)
-
-        self._started = True
-
-    async def join(self, *hosts) -> int:
-        success = await self._pusher.join(*hosts)
-        return success
-
-    async def leave(self):
-        self._closing = True
-        await self._fe_ticker.stop()
-        await self._gossip_ticker.stop()
-        await self._listener.stop()
-        await self._pusher_ticker.stop()
-
-        self._udp_server.close()
-        self._tcp_server.close()
-        await self._udp_server.wait_closed()
-        await self._tcp_server.wait_closed()
-
-    async def update_node(self, metadata):
-        assert len(metadata) < 500
-        incarnation = self._mlist.lclock.next_incarnation()
-        n = (self._mlist
-             .local_node
-             ._replace(meta=metadata, incarnation=incarnation))
-        self._mlist.update_node(n)
-        a = Alive(n.node_id, n.address, n.incarnation, n.meta)
-        waiter = self._loop.create_future()
-        self._gossiper.queue.put(a, waiter)
-        await waiter
+        self._active_view = {}
+        self._passive_view = {}
+        self._config = config
+        self._id_generator = IdGenerator()
 
     @property
     def local_node(self):
-        return self._mlist.local_node
+        return self._node
 
     @property
-    def listener(self):
-        return self._listener
+    def nodes(self):
+        return tuple([self.local_node] +
+                     list(self._active_view().keys()) +
+                     list(self._passive_view().keys()))
 
     @property
-    def members(self):
-        return self._mlist.nodes
-
-    def get_node(self, address):
-        return self._mlist.get_node(address)
+    def active_view(self):
+        return tuple(self._active_view().keys())
 
     @property
-    def num_meber(self):
-        return len(self._mlist.nodes)
+    def passive_view(self):
+        return tuple(self._passive_view().keys())
 
-    def get_health_score(self) -> int:
-        return 1
+    async def boot(self):
+        cm = ConnectionManager(self._node)
+        server = await asyncio.start_server(cm.handle_connection,
+                                            host=self.local_node.host,
+                                            port=self.local_node.port)
+        self._cm = cm
+        self._server = server
+        self._reader_task = asyncio.ensure_future(self.receive())
 
 
-class EventListener:
+    async def join(self, node):
+        msg = s.Join(1, self.local_node)
+        await self._cm.send(node, msg)
+        await self._joined
 
-    def __init__(self, loop):
-        self._loop = loop
-        self._hander = None
-        self._queue = asyncio.Queue(loop=loop)
-        self._mover_task = asyncio.ensure_future(
-            self._mover(), loop=loop)
-
-    def notify(self, event_type, node):
-        if self._hander is None:
-            return
-        self._queue.put_nowait((event_type, node))
-
-    def add_handler(self, handler):
-        self._hander = handler
-
-    async def _mover(self):
-        event_type, node = await self._queue.get()
-        if self._hander is not None:
-            try:
-                await self._hander(event_type, node)
-            except Exception as e:
-                print(e)
-
-    async def stop(self):
+    async def shutdown(self):
         self._closing = True
-        if self._mover_task is None:
-            return
+        msg = s.Disconnect(1, self.local_node, True)
+        for node in self._active_view:
+            await self._cm.send(node, msg)
 
-        with contextlib.suppress(asyncio.CancelledError):
-            self._mover_task.cancel()
-            await self._mover_task
-            self._mover_task = None
+        for node in self._passive_view:
+            await self._cm.send(node, msg)
+
+        self._reader_task.cancel()
+        try:
+            await self._reader_task
+        except asyncio.CancelledError:
+            pass
+
+    async def receive(self):
+        while not self._closing:
+            msg = await self._cm.queue.get()
+            if isinstance(msg, s.Join):
+                await self.handle_join(msg)
+
+            elif isinstance(msg, s.JoinReply):
+                await self.handle_join_response(msg)
+
+            elif isinstance(msg, s.ForwardJoin):
+                await self.handle_forward_join(msg)
+
+            elif isinstance(msg, s.Neigbour):
+                await self.handle_neigbour(msg)
+
+            elif isinstance(msg, s.Shuffle):
+                await self.handle_shuffle(msg)
+
+            elif isinstance(msg, s.Disconnect):
+                await self.handle_disconnect(msg)
+            else:
+                raise RuntimeError("xxx")
+
+    def add_to_view(self, node):
+        self._active_view[node] = 1
+
+    def remove_from_view(self, node):
+        self._active_view.pop(node)
+
+    async def handle_join(self, msg):
+        reply = s.JoinReply(1, self.local_node, 1)
+        await self._cm.send(msg.sender, reply)
+        forward = s.ForwardJoin(
+            1, self.local_node, msg.sender, self._config.active_rwl)
+        for node in self._active_view.keys():
+            if node == self.local_node:
+                continue
+            await self._cm.send(node, forward)
+        self.add_to_view(msg.sender)
+
+    async def handle_join_response(self, msg):
+        self.add_to_view(msg.sender)
+        if not self._joined.done():
+            self._joined.set_result(None)
+
+    async def handle_forward_join(self, msg):
+        next_ttl = msg.ttl - 1
+        if next_ttl <= 0 or len(self._active_view) == 1:
+            self.add_to_view(msg.joiner)
+            reply = s.JoinReply(1, self.local_node, 1)
+            await self._cm.send(msg.joiner, reply)
+        else:
+            self.add_to_passive(msg.joiner)
+            forward = msg._replace(ttl=next_ttl)
+            for node in self._active_view.keys():
+                if node == self.local_node or node == msg.joiner:
+                    continue
+                await self._cm.send(node, forward)
+                break
+
+    async def handle_neighbour(self, msg):
+        print(msg)
+
+    async def handle_shuffle(self, msg):
+        print(msg)
+
+    async def handle_disconnect(self, msg):
+        self._active_view.pop(msg.sender, None)
+        if msg.leave:
+            self._passive_view.pop(msg.sender, None)
+            await self._cm.cleanup(msg.sender)
+
+    async def close(self):
+        await self.shutdown()
+        await self._cm.close()
