@@ -78,31 +78,33 @@ def decode_message(raw_payload: bytes):
 
     if message_type == JOIN_MSG:
         d = unpackb(raw_payload)
-        msg = Join(d[0], Node(*d[1]))
+        msg = Join(GossipId(*d[0]), Node(*d[1]))
 
     elif message_type == JOIN_REPLY_MSG:
         d = unpackb(raw_payload)
-        msg = JoinReply(d[0], Node(*d[1]), d[2])
+        msg = JoinReply(GossipId(*d[0]), Node(*d[1]), d[2])
 
     elif message_type == FORWARD_JOIN_MSG:
         d = unpackb(raw_payload)
-        msg = ForwardJoin(d[0], Node(*d[1]),  Node(*d[2]), d[3])
+        import ipdb
+        ipdb.set_trace()
+        msg = ForwardJoin(GossipId(*d[0]), Node(*d[1]), Join(GossipId(*d[2][0]), Node(*d[2][1])), d[3])
 
     elif message_type == NEIGBOUR_MSG:
         d = unpackb(raw_payload)
-        msg = Neigbour(d[0], Node(*d[1]), d[2])
+        msg = Neigbour(GossipId(*d[0]), Node(*d[1]), d[2])
 
     elif message_type == NEIGBOUR_REPLY_MSG:
         d = unpackb(raw_payload)
-        msg = NeigbourReply(d[0], Node(*d[1]), d[2])
+        msg = NeigbourReply(GossipId(*d[0]), Node(*d[1]), d[2])
 
     elif message_type == SHUFFLE_MSG:
         d = unpackb(raw_payload)
-        msg = Shuffle(d[0], Node(*d[1]), d[2])
+        msg = Shuffle(GossipId(*d[0]), Node(*d[1]), d[2])
 
     elif message_type == SHUFFLE_REPLY_MSG:
         d = unpackb(raw_payload)
-        msg = ShuffleReply(d[0], Node(*d[1]), d[2])
+        msg = ShuffleReply(GossipId(*d[0]), Node(*d[1]), d[2])
 
     elif message_type == HELLO_MSG:
         d = unpackb(raw_payload)
@@ -110,7 +112,7 @@ def decode_message(raw_payload: bytes):
 
     elif message_type == DISCONNECT_MSG:
         d = unpackb(raw_payload)
-        msg = Disconnect(d[0], Node(*d[1]), d[2])
+        msg = Disconnect(GossipId(*d[0]), Node(*d[1]), d[2])
 
     else:
         print(raw_payload, message_type)
