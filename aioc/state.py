@@ -23,7 +23,7 @@ JoinReply = namedtuple(
     "JoinReply", ["message_id", "sender", "last_disconnected"])
 
 ForwardJoin = namedtuple(
-    'ForwardJoin', ['message_id', 'sender', 'joiner', 'ttl'])
+    'ForwardJoin', ['message_id', 'sender', 'original_msg', 'ttl'])
 
 ForwardReply = namedtuple(
     'ForwardJoin', ['message_id', 'sender'])
@@ -35,10 +35,10 @@ NeigbourReply = namedtuple(
     'NeigbourReply', ['message_id', 'sender', 'response'])
 
 Shuffle = namedtuple(
-    'Neigbour', ['message_id', 'sender', 'priority'])
+    'Shuffle', ['message_id', 'sender', 'priority'])
 
 ShuffleReply = namedtuple(
-    'Neigbour', ['message_id', 'sender', 'response'])
+    'ShuffleReply', ['message_id', 'sender', 'response'])
 
 
 MessageId = namedtuple(
@@ -47,12 +47,12 @@ MessageId = namedtuple(
 
 
 Hello = namedtuple(
-    "Hello", ["message_id", "sender"])
+    "Hello", ["cluster_id", "sender"])
 
 Disconnect = namedtuple(
     "Disconnect", ["message_id", "sender", "leave"])
 
-Config = namedtuple("Config", ["node_name", "node_address"])
+GossipId = namedtuple("GossipId", ["incarantion", "sequence_num"])
 
 
 JOIN_MSG = 1
