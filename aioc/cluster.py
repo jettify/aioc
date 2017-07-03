@@ -25,9 +25,9 @@ class Cluster:
         self._tcp_handler = None
         self._udp_server = None
         self._tcp_server = None
-        self._fe = None
+        self._fd = None
 
-        self._fe_ticker = None
+        self._fd_ticker = None
         self._gossip_ticker = None
 
         self._closing = False
@@ -44,9 +44,9 @@ class Cluster:
                                   loop=loop)
 
         self._pusher = Pusher(self._mlist, self._gossiper, loop)
-        self._fe = FailureDetector(self._mlist, self._gossiper, loop)
+        self._fd = FailureDetector(self._mlist, self._gossiper, loop)
 
-        udp_handler = MessageHandler(self._mlist, self._gossiper, self._fe,
+        udp_handler = MessageHandler(self._mlist, self._gossiper, self._fd,
                                      loop)
         udp_server.set_handler(udp_handler.handle)
 
@@ -64,10 +64,10 @@ class Cluster:
             loop=loop)
         self._gossip_ticker.start()
 
-        self._fe_ticker = Ticker(
-            self._fe.probe, self.config.probe_interval,
+        self._fd_ticker = Ticker(
+            self._fd.probe, self.config.probe_interval,
             loop=loop)
-        # self._fe_ticker.start()
+        # self._fd_ticker.start()
 
         self._pusher_ticker = Ticker(
             self._pusher.push_pull, self.config.push_pull_interval,
@@ -81,7 +81,7 @@ class Cluster:
 
     async def leave(self):
         self._closing = True
-        await self._fe_ticker.stop()
+        await self._fd_ticker.stop()
         await self._gossip_ticker.stop()
         await self._listener.stop()
         await self._pusher_ticker.stop()
