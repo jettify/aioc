@@ -40,8 +40,8 @@ class Cluster:
 
         udp_server = await create_server(
             host=h, port=p, mlist=self._mlist, loop=loop)
-        self._gossiper = Gossiper(self._mlist, udp_server, self._listener,
-                                  loop=loop)
+
+        self._gossiper = Gossiper(self._mlist, self._listener)
 
         self._pusher = Pusher(self._mlist, self._gossiper, loop)
         self._fd = FailureDetector(self._mlist, self._gossiper, loop)
@@ -60,7 +60,8 @@ class Cluster:
         self._tcp_server = tcp_server
 
         self._gossip_ticker = Ticker(
-            self._gossiper.gossip, self.config.gossip_interval,
+            partial(self._gossiper.gossip, self._udp_server),
+            self.config.gossip_interval,
             loop=loop)
         self._gossip_ticker.start()
 

@@ -11,12 +11,10 @@ __all__ = ('Gossiper',)
 
 class Gossiper:
 
-    def __init__(self, mlist, udp_server, listener, loop):
+    def __init__(self, mlist, listener):
         self._mlist = mlist
         self._queue = DisseminationQueue(self._mlist)
-        self._udp_server = udp_server
         self._listener = listener
-        self._loop = loop
         self._suspicions = {}
 
     @property
@@ -38,7 +36,7 @@ class Gossiper:
                            self._mlist.num_nodes - 1)
         return self._mlist.kselect(gossip_nodes, filter_func)
 
-    async def gossip(self):
+    async def gossip(self, udp_server):
         for node in self.select_gossip_nodes():
             bytes_available = 500
             raw_payloads = self.queue.get_update_up_to(bytes_available)
@@ -48,7 +46,7 @@ class Gossiper:
             host, port = node.address.split(":")
             addr = (host, int(port))
             print("gossip", raw, addr)
-            self._udp_server.sendto(raw, addr)
+            udp_server.sendto(raw, addr)
 
     def alive(self, message):
         a = message
@@ -65,7 +63,7 @@ class Gossiper:
             new_node = node._replace(incarnation=a.incarnation, meta=a.meta,
                                      status=ALIVE, state_change=time.time())
             self._mlist.update_node(new_node)
-            self._suspicions.pop(a.address)
+            self._suspicions.pop(a.address, None)
 
         self.queue.put(message, waiter=None)
         self._listener.notify(EventType.UPDATE, new_node)
