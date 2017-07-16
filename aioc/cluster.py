@@ -1,14 +1,16 @@
 import asyncio
 import contextlib
+from functools import partial
 
 from .failure_detector import FailureDetector
 from .gossiper import Gossiper
 from .mlist import MList
-from .net import create_server, MessageHandler
+from .net import create_server
 from .pusher import Pusher
 from .state import Alive
 from .tcp import create_tcp_server
 from .utils import Ticker
+from . import state
 
 
 __all__ = ('Cluster',)
@@ -21,7 +23,6 @@ class Cluster:
         self._mlist = MList(config)
         self._listener = EventListener(loop)
 
-        self._udp_handler = None
         self._tcp_handler = None
         self._udp_server = None
         self._tcp_server = None
@@ -46,11 +47,8 @@ class Cluster:
         self._pusher = Pusher(self._mlist, self._gossiper, loop)
         self._fd = FailureDetector(self._mlist, self._gossiper, loop)
 
-        udp_handler = MessageHandler(self._mlist, self._gossiper, self._fd,
-                                     loop)
-        udp_server.set_handler(udp_handler.handle)
+        udp_server.set_handler(self.handle)
 
-        self._udp_handler = udp_handler
         self._udp_server = udp_server
 
         tcp_server, tcp_handler = await create_tcp_server(
@@ -87,19 +85,17 @@ class Cluster:
         await self._listener.stop()
         await self._pusher_ticker.stop()
 
-        self._udp_server.close()
+        await self._udp_server.close()
         self._tcp_server.close()
-        await self._udp_server.wait_closed()
         await self._tcp_server.wait_closed()
 
     async def update_node(self, metadata):
         assert len(metadata) < 500
         incarnation = self._mlist.lclock.next_incarnation()
-        n = (self._mlist
-             .local_node
+        n = (self._mlist.local_node_meta
              ._replace(meta=metadata, incarnation=incarnation))
         self._mlist.update_node(n)
-        a = Alive(n.node_id, n.address, n.incarnation, n.meta)
+        a = Alive(n.node, n.node, n.incarnation, n.meta)
         waiter = self._loop.create_future()
         self._gossiper.queue.put(a, waiter)
         await waiter
@@ -109,6 +105,11 @@ class Cluster:
         return self._mlist.local_node
 
     @property
+    def local_node_meta(self):
+        n = self._mlist.local_node
+        return self._mlist.node_meta(n)
+
+    @property
     def listener(self):
         return self._listener
 
@@ -116,15 +117,73 @@ class Cluster:
     def members(self):
         return self._mlist.nodes
 
-    def get_node(self, address):
-        return self._mlist.get_node(address)
-
     @property
     def num_meber(self):
         return len(self._mlist.nodes)
 
     def get_health_score(self) -> int:
         return 1
+
+    def handle(self, raw_message, addr, protocol):
+        if raw_message[0] == state.COMPOUND_MSG:
+            messages = state.decode_messages(raw_message)
+        else:
+            messages = [state.decode_message(raw_message)]
+        for m in messages:
+            try:
+                self.handle_message(addr, m, protocol)
+            except Exception as e:
+                print(raw_message, addr, protocol)
+                raise e
+
+    def handle_message(self, addr, message, udp_cm):
+        if isinstance(message, state.Ping):
+            self.handle_ping(message, addr, udp_cm)
+
+        elif isinstance(message, state.IndirectPingReq):
+            self.handle_indirect_ping(message, addr)
+
+        elif isinstance(message, state.AckResp):
+            self.handle_ack(message, addr, udp_cm)
+
+        elif isinstance(message, state.NackResp):
+            self.handle_nack(message, addr, udp_cm)
+
+        elif isinstance(message, state.Alive):
+            self.handle_alive(message, addr, udp_cm)
+
+        else:
+            raise RuntimeError("Can not handle message", message)
+
+    # fd
+    def handle_ping(self, message, addr, udp_cm):
+        self._fd.on_ping(message, addr)
+
+    def handle_indirect_ping(self, message, node, udp_cm):
+        self._fd.on_indirect_ping(message)
+        print(message, node)
+        pass
+
+    def handle_ack(self, message, node, udp_cm):
+        self._fd.on_ack(message)
+        print("ACK", message, node, udp_cm)
+
+    def handle_nack(self, message, node, udp_cm):
+        self._fd.on_ping(message, node)
+
+    # gossip
+    def handle_alive(self, message, node, udp_cm):
+        self._gossiper.alive(message)
+
+    def handle_suspect(self, message, node, udp_cm):
+        self._gossiper.suspect(message)
+
+    def handle_dead(self, message, node, udp_cm):
+        self._gossiper.dead(message)
+
+    # user
+    def handle_user(self, message, node, udp_cm):
+        print(message, node)
 
 
 class EventListener:

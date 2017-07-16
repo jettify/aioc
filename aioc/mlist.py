@@ -1,7 +1,7 @@
 import time
 
 from random import Random
-from .state import Node, ALIVE
+from .state import Node, ALIVE, NodeMeta, DEAD
 from .utils import LClock
 
 
@@ -12,13 +12,13 @@ class MList:
         self._config = config
 
         host, port = self._config.host, self._config.port
-        self._address = f'{host}:{port}'
+        self._address = (host, port)
         incarnation = self._lclock.incarnation
-        node = Node('', self._address, incarnation, b'', ALIVE,
-                    time.time())
+        node = Node(host, port)
+        meta = NodeMeta(node, incarnation, b'', ALIVE, time.time())
 
-        self._members = {node.address: node}
-        self._nodes = [n for n in self._members.values()]
+        self._members = {node: meta}
+        self._nodes = [node]
 
         self._dead = {}
         self._suspected = {}
@@ -39,12 +39,12 @@ class MList:
         return len(self._members)
 
     @property
-    def local_address(self):
-        return self._address
+    def local_node(self):
+        return self._local_node
 
     @property
-    def local_node(self):
-        return self._members[self._address]
+    def local_node_meta(self):
+        return self._members[self._local_node]
 
     @property
     def nodes(self):
@@ -54,23 +54,37 @@ class MList:
         nodes_map = {}
         n = k
         for i in range(3*k):
-            selected_nodes = self._random.sample(self.nodes, n)
-            nodes = list(filter(filter_func, selected_nodes))
-            for n in nodes:
-                if n.address not in nodes_map:
-                    nodes_map[n.address] = n
-            if len(nodes) >= k:
+            selected_nodes = self._random.sample(
+                list(self._members.values()), n)
+            node_metas = list(filter(filter_func, selected_nodes))
+            for n in node_metas:
+                if n.node not in nodes_map:
+                    nodes_map[n.node] = n
+            if len(node_metas) >= k:
                 break
             else:
-                n -= len(nodes)
+                n -= len(node_metas)
 
         return nodes_map.values()
 
-    def get_node(self, address):
+    def node_meta(self, node):
         # TODO: make immutable
-        return self._members.get(address)
+        return self._members.get(node)
 
-    def update_node(self, node):
-        self._members[node.address] = node
-        # TODO: append to random position
-        self._nodes.append(node)
+    def update_node(self, node_meta):
+        self._members[node_meta.node] = node_meta
+        self._nodes.append(node_meta.node)
+
+    def select_gossip_nodes(self):
+        def filter_func(node_meta):
+            if node_meta.node == self.local_node:
+                return False
+
+            gossip_to_dead = self.config.gossip_to_dead
+            if (node_meta.status == DEAD and
+                    (time.time() - node_meta.state_change) > gossip_to_dead):
+                return False
+            return True
+
+        gossip_nodes = min(self.config.gossip_nodes, self.num_nodes - 1)
+        return self.kselect(gossip_nodes, filter_func)
