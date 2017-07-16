@@ -3,7 +3,7 @@ import asyncio
 
 from aioc.cluster import Cluster
 from aioc.config import LAN
-from aioc.state import add_msg_size, encode_message, Ping
+from aioc.state import add_msg_size, encode_message, Ping, Node
 from aioc.tcp import TCPClient
 
 
@@ -52,7 +52,7 @@ def tcp_client(loop):
 async def test_ctor(loop, udp_client):
     cluster = Cluster(LAN, loop=loop)
     await cluster.boot()
-    msg = (777, b'node_id')
+    msg = (Node("h", 8080), 1, Node(LAN.host, LAN.port))
     udp_client.sentdto(Ping(*msg))
     await asyncio.sleep(0.1, loop=loop)
     await cluster.leave()
@@ -83,7 +83,7 @@ async def test_update_node(loop, tcp_client):
     c1_address = ('localhost', 50001)
     c1 = LAN.with_replace(host='localhost', port=50001)
     cluster1 = Cluster(c1, loop=loop)
-    incarnation = cluster1.local_node.incarnation
+    incarnation = cluster1.local_node_meta.incarnation
     await cluster1.boot()
     configs = [LAN.with_replace(host='localhost', port=50002 + i)
                for i in range(3)]
@@ -96,9 +96,10 @@ async def test_update_node(loop, tcp_client):
     await asyncio.sleep(1, loop=loop)
 
     for cluster in clusters:
-        node = cluster.get_node('{}:{}'.format(*c1_address))
-        node.meta == 'xxx'
-        node.incarnation > incarnation
+        node = Node(*c1_address)
+        node_meta = cluster._mlist.node_meta(node)
+        node_meta.meta == 'xxx'
+        node_meta.incarnation > incarnation
 
     for cluster in clusters:
         await cluster.leave()

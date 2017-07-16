@@ -64,7 +64,8 @@ class TCPMessageHandler:
         print(message, conn)
 
     async def handle_push_pull(self, message, conn):
-        resp = PushPull(self._mlist.nodes, False)
+        metas = list(self._mlist._members.values())
+        resp = PushPull(self._mlist.local_node, metas, False)
         self._gossiper.merge(message)
         raw = state.add_msg_size(state.encode_message(resp))
         conn.writer.write(raw)
