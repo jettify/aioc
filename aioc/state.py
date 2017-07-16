@@ -19,8 +19,10 @@ LENGTH_SIZE = 4
 
 
 Node = namedtuple(
-    'Node', ['node_id', 'address', 'incarnation', 'meta', 'status',
-             'state_change'])
+    'Node', ['host', 'port'])
+
+NodeMeta = namedtuple(
+    'NodeMeta', ['node', 'incarnation', 'meta', 'status', 'state_change'])
 
 ALIVE = 1
 DEAD = 2
@@ -28,37 +30,37 @@ SUSPECT = 3
 
 
 Ping = namedtuple(
-    "Ping", ["sequence_num", "address"])
+    "Ping", ["sender", "sequence_num", "target"])
 
 IndirectPingReq = namedtuple(
-    "IndirectPingReq", ["sequence_num", "target", "port", "node_id", "nack"])
+    "IndirectPingReq", ["sender", "sequence_num", "target", "nack"])
 
 AckResp = namedtuple(
-    "AckResp", ["sequence_num", "payload"])
+    "AckResp", ["sender", "sequence_num", "payload"])
 
 
 NackResp = namedtuple(
-    "NackResp", ["sequence_num"])
+    "NackResp", ["sender", "sequence_num"])
 
 Suspect = namedtuple(
-    "Suspect", ["address", "incarnation", "from_node"])
+    "Suspect", ["sender", "node", "incarnation"])
 
 # alive is broadcast when we know a node is alive.
 # Overloaded for nodes joining
 Alive = namedtuple(
-    "Alive", ["node_id", "address", "incarnation",   "meta"])
+    "Alive", ["sender", "node", "incarnation", "meta"])
 
 PushPull = namedtuple(
-    "PushPull", ["nodes", "join"])
+    "PushPull", ["sender", "nodes", "join"])
 
 
 UserMsg = namedtuple(
-    "UserMsg", ["incarnation", "node_id"])
+    "UserMsg", ["sender", "incarnation"])
 
 
 # dead is broadcast when we confirm a node is dead
 # Overloaded for nodes leaving
-Dead = namedtuple("Dead", ["incarnation", "node_id", "from_node"])
+Dead = namedtuple("Dead", ["sender", "incarnation", "node", "from_node"])
 
 Config = namedtuple("Config", ["node_name", "node_address"])
 
@@ -83,38 +85,34 @@ unpackb = partial(msgpack.unpackb, encoding='utf-8')
 def decode_message(raw_payload: bytes):
     message_type = raw_payload[0]
     raw_payload = raw_payload[1:]
+    d = unpackb(raw_payload)
+    node = Node(*d[0])
+    d = d[1:]
 
     if message_type == PING_MSG:
-        d = unpackb(raw_payload)
-        msg = Ping(*d)
+        msg = Ping(node, d[0], Node(*d[1]))
 
     elif message_type == INDIRECT_PING_MSG:
-        d = unpackb(raw_payload)
-        msg = IndirectPingReq(*d)
+        msg = IndirectPingReq(node, d[0], Node(*d[1]), d[2])
 
     elif message_type == NACK_RESP_MSG:
-        d = unpackb(raw_payload)
-        msg = NackResp(*d)
+        msg = NackResp(node, *d)
 
     elif message_type == ACK_RESP_MSG:
-        d = unpackb(raw_payload)
-        msg = AckResp(*d)
+        msg = AckResp(node, *d)
 
     elif message_type == ALIVE_MSG:
-        d = unpackb(raw_payload)
-        msg = Alive(*d)
+        msg = Alive(node, Node(*d[0]), *d[1:])
 
     elif message_type == SUSPECT_MSG:
-        d = unpackb(raw_payload)
-        msg = Suspect(*d)
+        msg = Suspect(node, Node(*d[0]), *d[1:])
 
     elif message_type == DEAD_MSG:
-        d = unpackb(raw_payload)
-        msg = Dead(*d)
+        msg = IndirectPingReq(node, d[0], Node(*d[1]), Node(*d[2]))
 
     elif message_type == PUSH_PULL_MSG:
-        d = unpackb(raw_payload)
-        msg = PushPull([Node(*i) for i in d[0]], d[1])
+        msg = PushPull(
+            node, [NodeMeta(Node(*i[0]), *i[1:]) for i in d[0]], d[1])
     else:
         print(raw_payload, message_type)
         raise RuntimeError("no such message type")
@@ -160,7 +158,9 @@ def encode_message(message: Any) -> bytes:
         message_type = PUSH_PULL_MSG
 
     else:
-        raise RuntimeError("Message type is uknown")
+        import ipdb
+        ipdb.set_trace()
+        raise RuntimeError("Message type is unknown")
 
     m_size = len(raw_message)
     fmt = '>B{}s'.format(m_size)
