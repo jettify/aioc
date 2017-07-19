@@ -4,7 +4,6 @@ import asyncio
 from aioc.cluster import Cluster
 from aioc.config import LAN
 from aioc.state import add_msg_size, encode_message, Ping, Node
-from aioc.tcp import TCPClient
 
 
 class ClientUdpProtocol:
@@ -42,12 +41,6 @@ def udp_client(loop):
     transport.close()
 
 
-@pytest.yield_fixture
-def tcp_client(loop):
-    client = TCPClient(loop)
-    yield client
-
-
 @pytest.mark.run_loop
 async def test_ctor(loop, udp_client):
     cluster = Cluster(LAN, loop=loop)
@@ -59,7 +52,7 @@ async def test_ctor(loop, udp_client):
 
 
 @pytest.mark.run_loop
-async def test_tcp_join(loop, tcp_client):
+async def test_tcp_join(loop):
     c1_address = ('localhost', 50001)
     c1 = LAN.with_replace(host='localhost', port=50001)
     cluster1 = Cluster(c1, loop=loop)
@@ -79,7 +72,7 @@ async def test_tcp_join(loop, tcp_client):
 
 
 @pytest.mark.run_loop
-async def test_update_node(loop, tcp_client):
+async def test_update_node(loop):
     c1_address = ('localhost', 50001)
     c1 = LAN.with_replace(host='localhost', port=50001)
     cluster1 = Cluster(c1, loop=loop)
@@ -107,7 +100,7 @@ async def test_update_node(loop, tcp_client):
 
 
 @pytest.mark.run_loop
-async def test_node_listener(loop, tcp_client):
+async def test_node_listener(loop):
     c1_address = ('localhost', 50001)
     c1 = LAN.with_replace(host='localhost', port=50001)
     c2 = LAN.with_replace(host='localhost', port=50002)
