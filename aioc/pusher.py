@@ -1,5 +1,4 @@
 from .state import PushPull, ALIVE
-from .tcp import TCPClient
 
 
 __all__ = ('Pusher',)
@@ -7,16 +6,16 @@ __all__ = ('Pusher',)
 
 class Pusher:
 
-    def __init__(self, mlist, gossiper, loop):
+    def __init__(self, mlist, gossiper, tcp, loop):
         self._loop = loop
         self._mlist = mlist
         self._gossiper = gossiper
-        self._client = TCPClient(loop=loop)
+        self._tcp = tcp
 
     async def push_pull_address(self, address):
         metas = list(self._mlist._members.values())
         msg = PushPull(self._mlist.local_node, metas, True)
-        resp = await self._client.send_message(address, msg)
+        resp = await self._tcp.send_message(address, msg)
         self._gossiper.merge(resp)
 
     async def push_pull(self):
