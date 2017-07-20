@@ -7,7 +7,7 @@ from .gossiper import Gossiper
 from .mlist import MList
 from .net import create_server
 from .pusher import Pusher
-from .state import Alive
+from .state import Alive, PushPull
 from .tcp import create_tcp_server
 from .utils import Ticker
 from . import state
@@ -23,7 +23,6 @@ class Cluster:
         self._mlist = MList(config)
         self._listener = EventListener(loop)
 
-        self._tcp_handler = None
         self._udp_server = None
         self._tcp_server = None
         self._fd = None
@@ -44,18 +43,18 @@ class Cluster:
 
         self._gossiper = Gossiper(self._mlist, self._listener)
 
-        self._pusher = Pusher(self._mlist, self._gossiper, loop)
         self._fd = FailureDetector(self._mlist, self._gossiper, loop)
 
         udp_server.set_handler(self.handle)
 
         self._udp_server = udp_server
-
-        tcp_server, tcp_handler = await create_tcp_server(
+        tcp_server = await create_tcp_server(
             host=h, port=p, mlist=self._mlist,
             gossiper=self._gossiper, loop=loop)
-        self._tcp_handler = tcp_handler
+        tcp_server.set_handler(self.handle_tcp_message)
         self._tcp_server = tcp_server
+
+        self._pusher = Pusher(self._mlist, self._gossiper, tcp_server, loop)
 
         self._gossip_ticker = Ticker(
             partial(self._gossiper.gossip, self._udp_server),
@@ -86,8 +85,7 @@ class Cluster:
         await self._pusher_ticker.stop()
 
         await self._udp_server.close()
-        self._tcp_server.close()
-        await self._tcp_server.wait_closed()
+        await self._tcp_server.close()
 
     async def update_node(self, metadata):
         assert len(metadata) < 500
@@ -124,6 +122,38 @@ class Cluster:
     def get_health_score(self) -> int:
         return 1
 
+    async def handle_tcp_message(self, message, conn):
+        if isinstance(message, state.Ping):
+            await self.handle_tcp_ping(message, conn)
+
+        elif isinstance(message, state.PushPull):
+            await self.handle_push_pull(message, conn)
+
+        elif isinstance(message, state.UserMsg):
+            await self.handle_user(message, conn)
+        else:
+            await self.handle_unknown(message, conn)
+
+    async def handle_tcp_ping(self, message, conn):
+        sequence_num = message.sequence_num
+        # TODO: handle ack payload correctly
+        ack = state.AckResp(sequence_num, b'ping')
+        raw = state.add_msg_size(state.encode_message(ack))
+        conn.writer.write(raw)
+
+    async def handle_user(self, message, conn):
+        print(message, conn)
+
+    async def handle_push_pull(self, message, conn):
+        metas = list(self._mlist._members.values())
+        resp = PushPull(self._mlist.local_node, metas, False)
+        self._gossiper.merge(message)
+        raw = state.add_msg_size(state.encode_message(resp))
+        conn.writer.write(raw)
+
+    async def handle_unknown(self, message, conn):
+        print(message, conn)
+
     def handle(self, raw_message, addr, protocol):
         if raw_message[0] == state.COMPOUND_MSG:
             messages = state.decode_messages(raw_message)
@@ -131,59 +161,55 @@ class Cluster:
             messages = [state.decode_message(raw_message)]
         for m in messages:
             try:
-                self.handle_message(addr, m, protocol)
+                self.handle_udp_message(m, protocol)
             except Exception as e:
                 print(raw_message, addr, protocol)
                 raise e
 
-    def handle_message(self, addr, message, udp_cm):
+    def handle_udp_message(self, message, udp_cm):
         if isinstance(message, state.Ping):
-            self.handle_ping(message, addr, udp_cm)
+            self.handle_ping(message, udp_cm)
 
         elif isinstance(message, state.IndirectPingReq):
-            self.handle_indirect_ping(message, addr)
+            self.handle_indirect_ping(message, udp_cm)
 
         elif isinstance(message, state.AckResp):
-            self.handle_ack(message, addr, udp_cm)
+            self.handle_ack(message, udp_cm)
 
         elif isinstance(message, state.NackResp):
-            self.handle_nack(message, addr, udp_cm)
+            self.handle_nack(message, udp_cm)
 
         elif isinstance(message, state.Alive):
-            self.handle_alive(message, addr, udp_cm)
+            self.handle_alive(message, udp_cm)
 
         else:
             raise RuntimeError("Can not handle message", message)
 
     # fd
-    def handle_ping(self, message, addr, udp_cm):
-        self._fd.on_ping(message, addr)
+    def handle_ping(self, message, udp_cm):
+        self._fd.on_ping(message, udp_cm)
 
-    def handle_indirect_ping(self, message, node, udp_cm):
+    def handle_indirect_ping(self, message, udp_cm):
         self._fd.on_indirect_ping(message)
-        print(message, node)
+        print(message)
         pass
 
-    def handle_ack(self, message, node, udp_cm):
+    def handle_ack(self, message, udp_cm):
         self._fd.on_ack(message)
-        print("ACK", message, node, udp_cm)
+        print("ACK", message, udp_cm)
 
-    def handle_nack(self, message, node, udp_cm):
-        self._fd.on_ping(message, node)
+    def handle_nack(self, message, udp_cm):
+        self._fd.on_ping(message)
 
     # gossip
-    def handle_alive(self, message, node, udp_cm):
+    def handle_alive(self, message, udp_cm):
         self._gossiper.alive(message)
 
-    def handle_suspect(self, message, node, udp_cm):
+    def handle_suspect(self, message, udp_cm):
         self._gossiper.suspect(message)
 
-    def handle_dead(self, message, node, udp_cm):
+    def handle_dead(self, message, udp_cm):
         self._gossiper.dead(message)
-
-    # user
-    def handle_user(self, message, node, udp_cm):
-        print(message, node)
 
 
 class EventListener:

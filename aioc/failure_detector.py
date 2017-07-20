@@ -1,7 +1,6 @@
 import asyncio
 
 from .state import Ping, Suspect, ALIVE, AckResp
-from .net import send_udp_messages
 
 
 class FailureDetector:
@@ -35,7 +34,7 @@ class FailureDetector:
             msgs.append(s)
         waiter = self._loop.create_future()
         self._probes[(node.address, sequence_num)] = waiter
-        send_udp_messages(self._udp_server, node.address, *msgs)
+        self._udp_server.send_messages(node.address, *msgs)
         try:
             ack = await asyncio.wait_for(waiter, self._config.probe_timeout)
             print(ack)
@@ -43,9 +42,10 @@ class FailureDetector:
             raise
 
     def on_ping(self, message, addr):
+        return
         sequence_num = message.sequence_num
         ack = AckResp(sequence_num, b'ping')
-        send_udp_messages(self._udp_server, addr, ack)
+        self._udp_server.send_messages(addr, ack)
 
     def on_ping_request(self, message, addr):
         pass
