@@ -1,7 +1,7 @@
 docutils
 flake8
 ipdb
-msgpack-python
+cbor
 mypy-lang
 pytest
 pytest-cov

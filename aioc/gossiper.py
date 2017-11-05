@@ -1,9 +1,11 @@
-import math
 import time
 
-from .state import (make_compaund, encode_message, Alive, Suspect,
-                    add_msg_size, LENGTH_SIZE, NodeMeta,
-                    EventType, Node, ALIVE, SUSPECT, DEAD)
+from .state import (
+    make_compaund,
+    Alive, Suspect,
+    add_msg_size, NodeMeta,
+    EventType, ALIVE, SUSPECT, DEAD)
+from .dissemination_queue import DisseminationQueue
 
 
 __all__ = ('Gossiper',)
@@ -13,14 +15,14 @@ class Gossiper:
 
     def __init__(self, mlist, listener):
         self._mlist = mlist
-        self._queue = DisseminationQueue(self._mlist)
+        retransmit_mult = self._mlist.config.retransmit_mult
+        self._queue = DisseminationQueue(self._mlist, retransmit_mult)
         self._listener = listener
         self._suspicions = {}
 
     @property
     def queue(self):
         return self._queue
-
 
     async def gossip(self, udp_server):
         for node_meta in self._mlist.select_gossip_nodes():
@@ -32,7 +34,7 @@ class Gossiper:
             host, port = node_meta.node
             addr = (host, int(port))
             print("GOSSIP", self._mlist.local_node, node_meta.node)
-            await udp_server.send_raw_message(addr, raw)
+            udp_server.send_raw_message(addr, raw)
 
     def alive(self, message):
         a = message
@@ -48,7 +50,8 @@ class Gossiper:
             if a.incarnation <= node_meta.incarnation:
                 return
             new_node_meta = node_meta._replace(
-                incarnation=a.incarnation, meta=a.meta, status=ALIVE,
+                incarnation=a.incarnation,
+                meta=a.meta, status=ALIVE,
                 state_change=time.time())
 
             self._mlist.update_node(new_node_meta)
@@ -78,7 +81,7 @@ class Gossiper:
 
     def suspect(self, message):
         s = message
-        node = self._mlist.get_node(s.addres)
+        node = self._mlist.get_node(s.sender)
         if node is None:
             return
 
@@ -98,54 +101,3 @@ class Gossiper:
                 # TODO: fix incorrect from_node address
                 s = Suspect(message.sender, n.node, n.incarnation)
                 self.suspect(s)
-
-
-class DisseminationQueue:
-
-    def __init__(self, mlist):
-        self._attempts_to_updates = {}
-        self._hosts_to_attempt = {}
-        self._mlist = mlist
-        self._limit = 3
-        self._queue = []
-
-    def put(self, message, waiter=None):
-        for i, (attempts, existing_msg, fut) in enumerate(self._queue):
-            if self._invalidates(message, existing_msg):
-                if (fut is not None) and (not fut.cancelled()):
-                    fut.set_result(True)
-                self._queue[i] = None
-        self._queue = [q for q in self._queue if q is not None]
-        attempts = 0
-        self._queue.append((attempts, message, waiter))
-
-    def _invalidates(self, a, b):
-        return a.node == b.node
-
-    def get_update_up_to(self, bytes_available):
-        buffers = []
-        factor = self._mlist.config.retransmit_mult
-
-        num_nodes = self._mlist.num_nodes
-        limit = retransmit_limit(factor, num_nodes)
-        for i, (attempts, msg, fut) in enumerate(self._queue):
-            raw_payload = encode_message(msg)
-            if (len(raw_payload) + LENGTH_SIZE) <= bytes_available:
-                buffers.append(raw_payload)
-                bytes_available -= (len(raw_payload) + LENGTH_SIZE)
-
-                if limit >= attempts:
-                    self._queue[i] = None
-                    if (fut is not None) and (not fut.cancelled()):
-                        fut.set_result(True)
-                else:
-                    self._queue[i] = (attempts + 1, msg, fut)
-
-        self._queue = sorted([q for q in self._queue if q is not None],
-                             key=lambda i: i[0])
-        return buffers
-
-
-def retransmit_limit(retransmit_mult, num_nodes):
-    node_scale = math.ceil(math.log(num_nodes + 1))
-    return node_scale * retransmit_mult

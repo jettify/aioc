@@ -1,11 +1,9 @@
 import struct
+import cbor
 
 from collections import namedtuple
 from enum import Enum
-from functools import partial
 from typing import Any
-
-import msgpack
 
 
 class EventType(str, Enum):
@@ -79,13 +77,10 @@ ENCRYPT_MSG = 11
 NACK_RESP_MSG = 12
 
 
-unpackb = partial(msgpack.unpackb, encoding='utf-8')
-
-
 def decode_message(raw_payload: bytes):
     message_type = raw_payload[0]
     raw_payload = raw_payload[1:]
-    d = unpackb(raw_payload)
+    d = cbor.loads(raw_payload)
     node = Node(*d[0])
     d = d[1:]
 
@@ -130,7 +125,7 @@ def decode_messages(raw_payload: bytes):
 
 
 def encode_message(message: Any) -> bytes:
-    raw_message = msgpack.packb(message)
+    raw_message = cbor.dumps(message)
     message_type = 0
     if isinstance(message, Ping):
         message_type = PING_MSG
