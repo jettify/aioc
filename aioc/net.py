@@ -7,11 +7,11 @@ class UDPConnectionManager:
     def __init__(self, protocol):
         self._protocol = protocol
 
-    async def send_message(self, address, *messages):
+    def send_message(self, address, *messages):
         raw = state.add_msg_size(state.encode_messages(*messages))
         self._protocol.sendto(raw, address)
 
-    async def send_raw_message(self, address, raw):
+    def send_raw_message(self, address, raw):
         self._protocol.sendto(raw, address)
 
     def set_handler(self, handler):
