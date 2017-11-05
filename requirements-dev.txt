@@ -1,9 +1,10 @@
+cbor
 docutils
 flake8
 ipdb
-cbor
-mypy-lang
+mypy
 pytest
+pytest-asyncio
 pytest-cov
 pytest-sugar
 uvloop

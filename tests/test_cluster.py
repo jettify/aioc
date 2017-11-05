@@ -41,7 +41,7 @@ def udp_client(loop):
     transport.close()
 
 
-@pytest.mark.run_loop
+@pytest.mark.asyncio
 async def test_ctor(loop, udp_client):
     cluster = Cluster(LAN, loop=loop)
     await cluster.boot()
@@ -51,7 +51,7 @@ async def test_ctor(loop, udp_client):
     await cluster.leave()
 
 
-@pytest.mark.run_loop
+@pytest.mark.asyncio
 async def test_tcp_join(loop):
     c1_address = ('localhost', 50001)
     c1 = LAN.with_replace(host='localhost', port=50001)
@@ -71,7 +71,7 @@ async def test_tcp_join(loop):
     await cluster1.leave()
 
 
-@pytest.mark.run_loop
+@pytest.mark.asyncio
 async def test_update_node(loop):
     c1_address = ('localhost', 50001)
     c1 = LAN.with_replace(host='localhost', port=50001)
@@ -99,7 +99,7 @@ async def test_update_node(loop):
     await cluster1.leave()
 
 
-@pytest.mark.run_loop
+@pytest.mark.asyncio
 async def test_node_listener(loop):
     c1_address = ('localhost', 50001)
     c1 = LAN.with_replace(host='localhost', port=50001)
