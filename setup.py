@@ -15,7 +15,9 @@ def read(f):
     return open(os.path.join(os.path.dirname(__file__), f)).read().strip()
 
 
-install_requires = []  # type: List[str]
+install_requires = [
+    'cbor'
+]  # type: List[str]
 extras_require = {}  # type: Dict[str, str]
 
 
