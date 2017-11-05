@@ -12,6 +12,12 @@ class EventType(str, Enum):
     LEAVE = 'LEAVE'
 
 
+class NodeStatus(int, Enum):
+    ALIVE = 1
+    DEAD = 2
+    SUSPECT = 3
+
+
 MESSAGE_TYPE_SIZE = 1
 LENGTH_SIZE = 4
 
@@ -22,9 +28,7 @@ Node = namedtuple(
 NodeMeta = namedtuple(
     'NodeMeta', ['node', 'incarnation', 'meta', 'status', 'state_change'])
 
-ALIVE = 1
-DEAD = 2
-SUSPECT = 3
+
 
 
 Ping = namedtuple(

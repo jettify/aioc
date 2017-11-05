@@ -1,7 +1,7 @@
 import time
 
 from random import Random
-from .state import Node, ALIVE, NodeMeta, DEAD
+from .state import Node, NodeStatus, NodeMeta
 from .utils import LClock
 
 
@@ -15,7 +15,7 @@ class MList:
         self._address = (host, port)
         incarnation = self._lclock.incarnation
         node = Node(host, port)
-        meta = NodeMeta(node, incarnation, b'', ALIVE, time.time())
+        meta = NodeMeta(node, incarnation, b'', NodeStatus.ALIVE, time.time())
 
         self._members = {node: meta}
         self._nodes = [node]
@@ -81,7 +81,7 @@ class MList:
                 return False
 
             gossip_to_dead = self.config.gossip_to_dead
-            if (node_meta.status == DEAD and
+            if (node_meta.status == NodeStatus.DEAD and
                     (time.time() - node_meta.state_change) > gossip_to_dead):
                 return False
             return True

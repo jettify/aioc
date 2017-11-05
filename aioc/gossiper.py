@@ -4,7 +4,8 @@ from .state import (
     make_compaund,
     Alive, Suspect,
     add_msg_size, NodeMeta,
-    EventType, ALIVE, SUSPECT, DEAD)
+    EventType,
+    NodeStatus)
 from .dissemination_queue import DisseminationQueue
 
 
@@ -42,7 +43,7 @@ class Gossiper:
         node_meta = self._mlist.node_meta(a.node)
         if node_meta is None:
             new_node_meta = NodeMeta(
-                node, a.incarnation, a.meta, ALIVE, time.time())
+                node, a.incarnation, a.meta, NodeStatus.ALIVE, time.time())
             self._mlist.update_node(new_node_meta)
             self._listener.notify(EventType.JOIN, node)
         else:
@@ -51,7 +52,7 @@ class Gossiper:
                 return
             new_node_meta = node_meta._replace(
                 incarnation=a.incarnation,
-                meta=a.meta, status=ALIVE,
+                meta=a.meta, status=NodeStatus.ALIVE,
                 state_change=time.time())
 
             self._mlist.update_node(new_node_meta)
@@ -70,10 +71,10 @@ class Gossiper:
             return
 
         is_local = d.address == self._mlist.local_node.address
-        if node.status == DEAD and not is_local:
+        if node.status == NodeStatus.DEAD and not is_local:
             return
 
-        node = node._replace(status=DEAD, incarnation=d.incarnation,
+        node = node._replace(status=NodeStatus.DEAD, incarnation=d.incarnation,
                              state_change=time.time())
         self._mlist.update_node(node)
         self.queue.put(message, waiter=None)
@@ -94,10 +95,10 @@ class Gossiper:
 
     def merge(self, message):
         for n in message.nodes:
-            if n.status == ALIVE:
+            if n.status == NodeStatus.ALIVE:
                 a = Alive(message.sender, n.node, n.incarnation, n.meta)
                 self.alive(a)
-            elif n.sate in (DEAD, SUSPECT):
+            elif n.sate in (NodeStatus.DEAD, NodeStatus.SUSPECT):
                 # TODO: fix incorrect from_node address
                 s = Suspect(message.sender, n.node, n.incarnation)
                 self.suspect(s)

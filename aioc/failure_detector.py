@@ -1,6 +1,6 @@
 import asyncio
 
-from .state import Ping, Suspect, ALIVE, AckResp
+from .state import Ping, Suspect, NodeStatus, AckResp
 
 
 class FailureDetector:
