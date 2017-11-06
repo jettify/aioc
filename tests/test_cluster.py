@@ -78,8 +78,10 @@ async def test_update_node(loop):
     cluster1 = Cluster(c1, loop=loop)
     incarnation = cluster1.local_node_meta.incarnation
     await cluster1.boot()
+
+    num_clusters = 5
     configs = [LAN.with_replace(host='localhost', port=50002 + i)
-               for i in range(3)]
+               for i in range(num_clusters)]
     clusters = [Cluster(c, loop=loop) for c in configs]
     for cluster in clusters:
         await cluster.boot()

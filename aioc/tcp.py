@@ -5,8 +5,7 @@ from .state import (decode_msg_size, encode_message, decode_message,
                     add_msg_size)
 
 
-async def create_tcp_server(*, host='127.0.0.1', port=9999, mlist,
-                            gossiper, loop=None):
+async def create_tcp_server(*, host='127.0.0.1', port=9999, loop=None):
     cm = TCPConnectionManager()
     server = await asyncio.start_server(
         cm.handle_connection, host, port, loop=loop)

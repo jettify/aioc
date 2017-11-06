@@ -1,5 +1,5 @@
 from aioc.state import (encode_message, decode_message, encode_messages,
-                        decode_messages, add_msg_size)
+                        decode_messages)
 from aioc.state import (Ping, Suspect, Node,
                         IndirectPingReq, AckResp, NackResp, Alive,
                         Dead, PushPull, NodeMeta

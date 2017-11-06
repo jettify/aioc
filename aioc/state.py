@@ -26,9 +26,8 @@ Node = namedtuple(
     'Node', ['host', 'port'])
 
 NodeMeta = namedtuple(
-    'NodeMeta', ['node', 'incarnation', 'meta', 'status', 'state_change'])
-
-
+    'NodeMeta', ['node', 'incarnation', 'meta', 'status', 'state_change',
+                 'is_local'])
 
 
 Ping = namedtuple(
@@ -104,10 +103,10 @@ def decode_message(raw_payload: bytes):
         msg = Alive(node, Node(*d[0]), *d[1:])
 
     elif message_type == SUSPECT_MSG:
-        msg = Suspect(node, Node(*d[0]), *d[1:])
+        msg = Suspect(node, Node(*d[0]), d[1])
 
     elif message_type == DEAD_MSG:
-        msg = IndirectPingReq(node, d[0], Node(*d[1]), Node(*d[2]))
+        msg = Dead(node, d[0], Node(*d[1]), Node(*d[2]))
 
     elif message_type == PUSH_PULL_MSG:
         msg = PushPull(
