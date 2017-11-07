@@ -1,21 +1,24 @@
 import time
-
 from random import Random
+
 from .state import Node, NodeStatus, NodeMeta
-from .utils import LClock
 
 
 class MList:
 
     def __init__(self, config, seed=None):
-        self._lclock = LClock()
         self._config = config
-
         host, port = self._config.host, self._config.port
         self._address = (host, port)
-        incarnation = self._lclock.incarnation
+
         node = Node(host, port)
-        meta = NodeMeta(node, incarnation, b'', NodeStatus.ALIVE, time.time())
+        meta = NodeMeta(
+            node=node,
+            incarnation=1,
+            meta=b'',
+            status=NodeStatus.ALIVE,
+            state_change=time.time(),
+            is_local=True)
 
         self._members = {node: meta}
         self._nodes = [node]
@@ -29,10 +32,6 @@ class MList:
     @property
     def config(self):
         return self._config
-
-    @property
-    def lclock(self):
-        return self._lclock
 
     @property
     def num_nodes(self):
@@ -50,22 +49,14 @@ class MList:
     def nodes(self):
         return self._nodes
 
-    def kselect(self, k: int, filter_func):
-        nodes_map = {}
-        n = k
-        for i in range(3*k):
-            selected_nodes = self._random.sample(
-                list(self._members.values()), n)
-            node_metas = list(filter(filter_func, selected_nodes))
-            for n in node_metas:
-                if n.node not in nodes_map:
-                    nodes_map[n.node] = n
-            if len(node_metas) >= k:
-                break
-            else:
-                n -= len(node_metas)
+    def kselect(self, k: int, filter_func=None):
+        node_metas = list(filter(filter_func, self._members.values()))
 
-        return nodes_map.values()
+        if len(node_metas) < k:
+            return node_metas
+
+        selected_nodes = self._random.sample(node_metas, k)
+        return selected_nodes
 
     def node_meta(self, node):
         # TODO: make immutable
@@ -77,7 +68,7 @@ class MList:
 
     def select_gossip_nodes(self):
         def filter_func(node_meta):
-            if node_meta.node == self.local_node:
+            if node_meta.is_local:
                 return False
 
             gossip_to_dead = self.config.gossip_to_dead
