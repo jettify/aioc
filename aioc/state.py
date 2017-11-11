@@ -156,8 +156,6 @@ def encode_message(message: Any) -> bytes:
         message_type = PUSH_PULL_MSG
 
     else:
-        import ipdb
-        ipdb.set_trace()
         raise RuntimeError("Message type is unknown")
 
     m_size = len(raw_message)
