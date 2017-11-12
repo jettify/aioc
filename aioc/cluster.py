@@ -7,7 +7,7 @@ from .gossiper import Gossiper
 from .mlist import MList
 from .net import create_server
 from .pusher import Pusher
-from .state import Alive, PushPull
+from .state import Alive, PushPull, Dead
 from .tcp import create_tcp_server
 from .utils import Ticker
 from . import state
@@ -43,14 +43,13 @@ class Cluster:
 
         self._gossiper = Gossiper(self._mlist, self._listener)
 
-        self._fd = FailureDetector(self._mlist, self._gossiper, loop)
+        self._fd = FailureDetector(self._mlist, udp_server, self._gossiper, loop)
 
         udp_server.set_handler(self.handle)
 
         self._udp_server = udp_server
-        tcp_server = await create_tcp_server(
-            host=h, port=p, mlist=self._mlist,
-            gossiper=self._gossiper, loop=loop)
+
+        tcp_server = await create_tcp_server(host=h, port=p, loop=loop)
         tcp_server.set_handler(self.handle_tcp_message)
         self._tcp_server = tcp_server
 
@@ -65,12 +64,11 @@ class Cluster:
         self._fd_ticker = Ticker(
             self._fd.probe, self.config.probe_interval,
             loop=loop)
-        # self._fd_ticker.start()
-
+        self._fd_ticker.start()
         self._pusher_ticker = Ticker(
             self._pusher.push_pull, self.config.push_pull_interval,
             loop=loop)
-
+        self._pusher_ticker.start()
         self._started = True
 
     async def join(self, *hosts) -> int:
@@ -78,6 +76,9 @@ class Cluster:
         return success
 
     async def leave(self):
+        incarnation = self._fd._lclock.next_incarnation()
+        node = self._mlist.local_node
+        msg = Dead(node, incarnation, node, node)
         self._closing = True
         await self._fd_ticker.stop()
         await self._gossip_ticker.stop()
@@ -89,7 +90,7 @@ class Cluster:
 
     async def update_node(self, metadata):
         assert len(metadata) < 500
-        incarnation = self._mlist.lclock.next_incarnation()
+        incarnation = self._fd._lclock.next_incarnation()
         n = (self._mlist.local_node_meta
              ._replace(meta=metadata, incarnation=incarnation))
         self._mlist.update_node(n)
@@ -117,7 +118,7 @@ class Cluster:
 
     @property
     def num_meber(self):
-        return len(self._mlist.nodes)
+        return len(self._mlist._members)
 
     def get_health_score(self) -> int:
         return 1
@@ -168,7 +169,7 @@ class Cluster:
 
     def handle_udp_message(self, message, udp_cm):
         if isinstance(message, state.Ping):
-            self.handle_ping(message, udp_cm)
+            self.handle_ping(message)
 
         elif isinstance(message, state.IndirectPingReq):
             self.handle_indirect_ping(message, udp_cm)
@@ -182,24 +183,28 @@ class Cluster:
         elif isinstance(message, state.Alive):
             self.handle_alive(message, udp_cm)
 
+        elif isinstance(message, state.Dead):
+            self.handle_dead(message, udp_cm)
+
+        elif isinstance(message, state.Suspect):
+            self.handle_suspect(message, udp_cm)
+
         else:
             raise RuntimeError("Can not handle message", message)
 
     # fd
-    def handle_ping(self, message, udp_cm):
-        self._fd.on_ping(message, udp_cm)
+    def handle_ping(self, message):
+        self._fd.on_ping(message)
 
     def handle_indirect_ping(self, message, udp_cm):
         self._fd.on_indirect_ping(message)
-        print(message)
-        pass
 
     def handle_ack(self, message, udp_cm):
         self._fd.on_ack(message)
         print("ACK", message, udp_cm)
 
     def handle_nack(self, message, udp_cm):
-        self._fd.on_ping(message)
+        self._fd.on_nack(message)
 
     # gossip
     def handle_alive(self, message, udp_cm):
@@ -210,6 +215,14 @@ class Cluster:
 
     def handle_dead(self, message, udp_cm):
         self._gossiper.dead(message)
+
+    def __str__(self):
+        c = self.config
+        return "<Cluster: {}:{}>".format(c.host, c.port)
+
+    def __repr__(self):
+        c = self.config
+        return "<Cluster: {}:{}>".format(c.host, c.port)
 
 
 class EventListener:
