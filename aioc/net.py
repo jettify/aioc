@@ -58,5 +58,6 @@ class UDPServerProtocol(asyncio.Protocol):
 async def create_server(*, host='127.0.0.1', port=9999, mlist, loop):
     address = (host, port)
     _, protocol = await loop.create_datagram_endpoint(
-        lambda: UDPServerProtocol(loop), local_addr=address)
+        lambda: UDPServerProtocol(loop),
+        local_addr=address)
     return UDPConnectionManager(protocol)

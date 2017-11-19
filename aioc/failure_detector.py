@@ -1,4 +1,4 @@
-import asyncio
+import asyncio  # noqa
 
 from .state import Ping, Suspect, NodeStatus, AckResp
 from .utils import LClock
@@ -6,29 +6,30 @@ from .utils import LClock
 
 class FailureDetector:
 
-    def __init__(self, mlist, udp_server, gossiper, loop):
+    def __init__(self, mlist, udp_server, gossiper, lclock, loop):
         self._mlist = mlist
         self._udp_server = udp_server
         self._gossiper = gossiper
         self._probes = {}
         self._loop = loop
         self._node_timers = {}
-        self._lclock = LClock()
+        self._lclock = lclock
 
-    async def probe(self):
+    async def probe(self) -> None:
 
         def filter_func(node_meta):
             if node_meta.node == self._mlist.local_node:
                 return False
-            #if node.status != ALIVE:
+            # if node.status != ALIVE:
             #    return False
             return True
 
         nodes = self._mlist.kselect(1, filter_func)
+        print("PROBE", nodes)
         for node in nodes:
             await self.ping_node(node)
 
-    async def ping_node(self, node_meta):
+    async def ping_node(self, node_meta) -> None:
         sequence_num = self._lclock.next_sequence_num()
         msg = Ping(self._mlist.local_node, sequence_num, node_meta.node)
 
@@ -40,18 +41,17 @@ class FailureDetector:
         self._probes[(node_meta.node, sequence_num)] = waiter
         self._udp_server.send_message(node_meta.node, *msgs)
         try:
-            t = 50
-            ack = await asyncio.wait_for(waiter, t + self._mlist.config.probe_timeout)
-            print(ack)
+            ack = await asyncio.wait_for(
+                waiter, self._mlist.config.probe_timeout)
+            assert(ack)
         except asyncio.TimeoutError as e:
-            print(e)
-            import ipdb
-            ipdb.set_trace()
-            msg = Suspect(self._mlist.local_node, node_meta.node, node_meta.incarnation)
-            # self._gossiper.suspect(msg)
-            # raise
+            print('ping_node', 'TimeoutError', e)
+            msg = Suspect(self._mlist.local_node,
+                          node_meta.node,
+                          node_meta.incarnation)
+            self._gossiper.suspect(msg)
 
-    def on_ping(self, message: Ping):
+    def on_ping(self, message: Ping) -> None:
         sequence_num = message.sequence_num
         sender = message.sender
         ack = AckResp(self._mlist.local_node, sequence_num, b'ping')

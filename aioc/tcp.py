@@ -41,6 +41,9 @@ class TCPConnectionManager:
             w.write(payload)
             await w.drain()
             raw_message = await self._read_message(r)
+        except Exception as e:
+            print("TDP failed: _request", e)
+            raise e
         finally:
             w.close()
         return raw_message

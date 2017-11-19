@@ -14,6 +14,7 @@ class Pusher:
         self._tcp = tcp
 
     async def push_pull_address(self, address):
+        print('PUSHPUL', address, time.time())
         metas = list(self._mlist._members.values())
         msg = PushPull(self._mlist.local_node, metas, True)
         try:
@@ -47,4 +48,5 @@ class Pusher:
             except OSError as e:
                 # TODO: add proper error handling in separate function
                 print(e)
+                raise e
         assert success > 0

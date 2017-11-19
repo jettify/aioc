@@ -87,17 +87,32 @@ async def test_update_node(loop):
         await cluster.boot()
         await cluster.join(c1_address)
 
-    await cluster1.update_node('xxx')
-    await asyncio.sleep(1, loop=loop)
+    await asyncio.sleep(5, loop=loop)
+    await cluster1.update_node(b'yyy')
+    await asyncio.sleep(5, loop=loop)
 
     for cluster in clusters:
+        if not cluster.num_meber == num_clusters + 1:
+            import ipdb
+            ipdb.set_trace()
+
         node = Node(*c1_address)
         node_meta = cluster._mlist.node_meta(node)
-        node_meta.meta == 'xxx'
-        node_meta.incarnation > incarnation
+        node_meta.meta == b'yyy'
+        assert node_meta.incarnation > incarnation
+    print("*" * 100)
+    print("*" * 100)
+    print("*" * 100)
+    print("*" * 100)
+    print("*" * 100)
+    print("*" * 100)
 
     for cluster in clusters:
         await cluster.leave()
+        import ipdb
+        ipdb.set_trace()
+        await asyncio.sleep(3, loop=loop)
+
     await cluster1.leave()
 
 

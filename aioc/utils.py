@@ -1,22 +1,13 @@
-import asyncio
+import asyncio  # noqa
 import contextlib
-
-
-def create_ticker(corofunc, interval: float, loop=None):
-    ticker = Ticker(corofunc, interval, loop=loop)
-    ticker.start()
-    return ticker
-
-
-def simple_timeout(interval: float, tick_start: float,
-                   tick_stop: float) -> float:
-    t = max(interval - (tick_stop - tick_start), 0)
-    return t
+from typing import Optional
+OptLoop = Optional[asyncio.AbstractEventLoop]
 
 
 class Ticker:
 
-    def __init__(self, corofunc, interval, timeout_func=None, loop=None):
+    def __init__(self, corofunc, interval, timeout_func=None,
+                 loop: OptLoop=None) -> None:
         self._interval = interval
         self._loop = loop
         self._ticker_task = None
@@ -59,18 +50,30 @@ class Ticker:
             self._ticker_task = None
 
 
+def create_ticker(corofunc, interval: float, loop=None) -> Ticker:
+    ticker = Ticker(corofunc, interval, loop=loop)
+    ticker.start()
+    return ticker
+
+
+def simple_timeout(interval: float, tick_start: float,
+                   tick_stop: float) -> float:
+    t = max(interval - (tick_stop - tick_start), 0)
+    return t
+
+
 class LClock:
 
-    def __init__(self, incarantion: int=1, sequence_num: int=1):
+    def __init__(self, incarantion: int=1, sequence_num: int=1) -> None:
         self._incarnation = incarantion
         self._sequence_num = sequence_num
 
     @property
-    def incarnation(self):
+    def incarnation(self) -> int:
         return self._incarnation
 
     @property
-    def sequence_num(self):
+    def sequence_num(self) -> int:
         return self._sequence_num
 
     def next_incarnation(self) -> int:

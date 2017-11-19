@@ -3,7 +3,7 @@ import cbor
 
 from collections import namedtuple
 from enum import Enum
-from typing import Any
+from typing import Any, Union, List
 
 
 class EventType(str, Enum):
@@ -63,8 +63,8 @@ UserMsg = namedtuple(
 # Overloaded for nodes leaving
 Dead = namedtuple("Dead", ["sender", "incarnation", "node", "from_node"])
 
-Config = namedtuple("Config", ["node_name", "node_address"])
-
+Msg = Union[Ping, IndirectPingReq, AckResp, NackResp, Alive, Suspect, Dead,
+            PushPull]
 
 PING_MSG = 1
 INDIRECT_PING_MSG = 2
@@ -80,12 +80,13 @@ ENCRYPT_MSG = 11
 NACK_RESP_MSG = 12
 
 
-def decode_message(raw_payload: bytes):
+def decode_message(raw_payload: bytes) -> Msg:
     message_type = raw_payload[0]
     raw_payload = raw_payload[1:]
     d = cbor.loads(raw_payload)
     node = Node(*d[0])
     d = d[1:]
+    msg: Msg
 
     if message_type == PING_MSG:
         msg = Ping(node, d[0], Node(*d[1]))
@@ -118,7 +119,7 @@ def decode_message(raw_payload: bytes):
     return msg
 
 
-def decode_messages(raw_payload: bytes):
+def decode_messages(raw_payload: bytes) -> List[Msg]:
     message_type = raw_payload[0]
     if message_type == COMPOUND_MSG:
         m = decode_compaund(raw_payload[1:])

@@ -47,6 +47,6 @@ class DisseminationQueue:
         return buffers
 
 
-def retransmit_limit(retransmit_mult, num_nodes):
-    node_scale = math.ceil(math.log(num_nodes + 1))
+def retransmit_limit(retransmit_mult: int, num_nodes: int) -> int:
+    node_scale = math.ceil(math.log10(num_nodes + 1))
     return node_scale * retransmit_mult

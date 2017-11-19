@@ -22,7 +22,7 @@ def config():
         gossip_to_dead=3600,
         probe_timeout=1,
         suspicion_mult=1,
-        suspicion_max_timeout_mult= 1
+        suspicion_max_timeout_mult=1
     )
     return conf
 

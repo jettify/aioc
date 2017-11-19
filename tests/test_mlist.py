@@ -2,13 +2,11 @@ from aioc.mlist import MList
 from aioc.state import NodeStatus, Node, NodeMeta
 
 
-
 def test_basic_mlist_ctor(config):
     mlist = MList(config, seed=1234)
     assert mlist.config == config
 
     assert mlist.num_nodes == 1
-
 
 
 def test_mutiple_nodes(config):
@@ -29,7 +27,6 @@ def test_mutiple_nodes(config):
     local = Node(config.host, config.port)
     assert mlist.local_node == local
     assert mlist.node_meta(local).node == local
-
 
 
 def test_mutiple_nodes_kselect(config):

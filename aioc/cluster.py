@@ -9,7 +9,7 @@ from .net import create_server
 from .pusher import Pusher
 from .state import Alive, PushPull, Dead
 from .tcp import create_tcp_server
-from .utils import Ticker
+from .utils import Ticker, LClock
 from . import state
 
 
@@ -33,6 +33,7 @@ class Cluster:
         self._closing = False
         self._started = False
         self._loop = loop or asyncio.get_event_loop()
+        self._lclock = LClock()
 
     async def boot(self):
         h, p = self.config.host, self.config.port
@@ -41,9 +42,10 @@ class Cluster:
         udp_server = await create_server(
             host=h, port=p, mlist=self._mlist, loop=loop)
 
-        self._gossiper = Gossiper(self._mlist, self._listener)
+        self._gossiper = Gossiper(self._mlist, self._listener, self._lclock)
 
-        self._fd = FailureDetector(self._mlist, udp_server, self._gossiper, loop)
+        self._fd = FailureDetector(
+            self._mlist, udp_server, self._gossiper, self._lclock, loop)
 
         udp_server.set_handler(self.handle)
 
@@ -76,9 +78,14 @@ class Cluster:
         return success
 
     async def leave(self):
-        incarnation = self._fd._lclock.next_incarnation()
+        incarnation = self._lclock.next_incarnation()
         node = self._mlist.local_node
         msg = Dead(node, incarnation, node, node)
+        import ipdb
+        ipdb.set_trace()
+
+        self._gossiper.dead(msg)
+
         self._closing = True
         await self._fd_ticker.stop()
         await self._gossip_ticker.stop()
@@ -90,7 +97,7 @@ class Cluster:
 
     async def update_node(self, metadata):
         assert len(metadata) < 500
-        incarnation = self._fd._lclock.next_incarnation()
+        incarnation = self._lclock.next_incarnation()
         n = (self._mlist.local_node_meta
              ._replace(meta=metadata, incarnation=incarnation))
         self._mlist.update_node(n)
@@ -164,6 +171,8 @@ class Cluster:
             try:
                 self.handle_udp_message(m, protocol)
             except Exception as e:
+                import pdb
+                pdb.set_trace()
                 print(raw_message, addr, protocol)
                 raise e
 
@@ -248,7 +257,10 @@ class EventListener:
             try:
                 await self._hander(event_type, node)
             except Exception as e:
+                import pdb
+                pdb.set_trace()
                 print(e)
+                raise e
 
     async def stop(self):
         self._closing = True
